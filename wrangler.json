@@ -18,8 +18,8 @@
 	},
   	"routes": [
 	    {
-	      "pattern": "health.kripso-world.com/*",
-	      "zone_name": "kripso-world.com"
+	      	"pattern": "health.kripso-world.com/*",
+      		"custom_domain": true
 	    }
 	]
 }
