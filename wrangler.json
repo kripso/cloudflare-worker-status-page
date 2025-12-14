@@ -15,11 +15,5 @@
 	},
 	"triggers": {
 		"crons": ["*/1 * * * *"]
-	},
-  	"routes": [
-	    {
-	      	"pattern": "health.kripso-world.com/*",
-      		"custom_domain": true
-	    }
-	]
+	}
 }
