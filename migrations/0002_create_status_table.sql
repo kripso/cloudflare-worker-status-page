@@ -13,7 +13,5 @@ CREATE TABLE IF NOT EXISTS services (
 -- Insert some sample services to monitor
 INSERT INTO services (name, url, is_up, status_changed_at)
 VALUES
-    ('Google', 'https://www.google.com', 1, datetime('now')),
-    ('GitHub', 'https://github.com', 1, datetime('now')),
-    ('Cloudflare', 'https://www.cloudflare.com', 1, datetime('now'))
+    ('wordle-aid', 'https://www.wordle-aid.com/health', 1, datetime('now'))
 ;
