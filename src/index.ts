@@ -1,4 +1,5 @@
 import { renderStatusPage, ServiceStatus } from "./renderHtml";
+import mc from "minecraftstatuspinger";
 
 async function sendToTelegram(msg: string, env: Env) {
 	const form = new FormData();
@@ -42,11 +43,28 @@ async function checkServiceHealth(url: string): Promise<{ isUp: boolean; respons
 	}
 }
 
+async function checkBedrockServer(host: string): Promise<{ isUp: boolean; responseTimeMs: number | null }> {
+  try {
+    const result = await mc.lookup({
+      host,
+      port: 19132,
+      timeout: 5000,  // 5s timeout
+      ping: true
+    });
+    return { isUp: !!result.status, responseTimeMs: result.latency};
+  } catch (error) {
+    return { isUp: false, responseTimeMs: null };
+  }
+}
+
 async function performHealthChecks(env: Env): Promise<void> {
 	const services = await env.DB.prepare("SELECT * FROM services").all<ServiceStatus>();
 	
 	for (const service of services.results) {
-		const { isUp, responseTimeMs } = await checkServiceHealth(service.url);
+		const { isUp, responseTimeMs } = service.name === 'bedrock'
+			? await checkBedrockServer(service.url)
+			: await checkServiceHealth(service.url);
+
 		const wasUp = service.is_up === 1;
 		const isFirstCheck = service.status_changed_at === null;
 		const statusChanged = wasUp !== isUp;
