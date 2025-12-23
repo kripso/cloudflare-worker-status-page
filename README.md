@@ -55,6 +55,8 @@ A simple status page built with Cloudflare Workers, D1 Database, and Svelte fron
    npm run deploy
    ```
 
+   > **Note**: The `deploy` script automatically runs `build:frontend` before deployment. If deploying via CI/CD (e.g., Cloudflare Pages), ensure the build command runs `npm run build:frontend && npx wrangler deploy` or configure your build pipeline to run the frontend build first.
+
 ## Development
 
 ### Local Development

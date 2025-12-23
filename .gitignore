@@ -199,4 +199,5 @@ dist
 !.dev.vars.example
 
 ### Vite/Svelte Build ###
-public/
+public/*
+!public/.gitkeep
