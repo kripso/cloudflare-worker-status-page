@@ -13,9 +13,6 @@
 			"database_name": "d1-template-database"
 		}
 	],
-	"observability": {
-		"enabled": true
-	},
 	"triggers": {
 		"crons": ["* * * * *"]
 	},

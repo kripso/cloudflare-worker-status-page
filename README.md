@@ -59,7 +59,7 @@ A simple status page built with Cloudflare Workers, D1 Database, and Svelte fron
 
 ### Local Development
 
-1. Seed the local D1 database:
+1. Seed the local D1 database (first time only):
    ```bash
    npm run seedLocalD1
    ```
