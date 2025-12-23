@@ -1,4 +1,13 @@
-import { renderStatusPage, ServiceStatus } from "./renderHtml";
+export interface ServiceStatus {
+	id: number;
+	name: string;
+	url: string;
+	is_up: number;
+	last_checked_at: string | null;
+	status_changed_at: string | null;
+	response_time_ms: number | null;
+	created_at: string;
+}
 
 async function sendToTelegram(msg: string, env: Env) {
 	const form = new FormData();
@@ -84,21 +93,30 @@ async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
 }
 
 export default {
-	async fetch(request, env) {
+	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 		
 		await performHealthChecks(env);
 
-		// Main status page
-		const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
-		const { results } = await stmt.all<ServiceStatus>();
-		const lastUpdatedDate = await lastUpdated(results);
+		// API endpoint for status data
+		if (url.pathname === '/api/status') {
+			const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
+			const { results } = await stmt.all<ServiceStatus>();
+			const lastUpdatedDate = await lastUpdated(results);
 
-		return new Response(renderStatusPage(results, lastUpdatedDate), {
-			headers: {
-				"content-type": "text/html",
-			},
-		});
+			return new Response(JSON.stringify({
+				services: results,
+				lastUpdated: lastUpdatedDate.toISOString()
+			}), {
+				headers: {
+					"content-type": "application/json",
+					"access-control-allow-origin": "*"
+				},
+			});
+		}
+
+		// Serve static assets via env.ASSETS
+		return env.ASSETS.fetch(request);
 	},
 	
 	// Scheduled handler for periodic healthchecks
