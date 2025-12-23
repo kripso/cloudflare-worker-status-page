@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"cf-typegen": "wrangler types",
+		"prebuild:frontend": "mkdir -p public",
 		"build:frontend": "vite build",
 		"check": "tsc && wrangler deploy --dry-run",
 		"deploy": "npm run build:frontend && wrangler deploy",

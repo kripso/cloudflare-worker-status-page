@@ -5,7 +5,7 @@ export default defineConfig({
 	plugins: [svelte()],
 	build: {
 		outDir: 'public',
-		emptyOutDir: false,
+		emptyOutDir: true,
 		rollupOptions: {
 			output: {
 				entryFileNames: 'assets/[name].js',
