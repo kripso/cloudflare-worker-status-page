@@ -156,10 +156,12 @@ The health checks run every minute by default. Modify the schedule in `wrangler.
 ```json
 {
   "triggers": {
-    "crons": ["* * * * *"]
+    "crons": ["* * * * *"]  // Every minute
   }
 }
 ```
+
+**Note:** Running health checks every minute can be resource-intensive. For most use cases, running every 5 minutes (`*/5 * * * *`) may be more appropriate and cost-effective. Adjust based on your monitoring requirements.
 
 ## Environment Variables
 
