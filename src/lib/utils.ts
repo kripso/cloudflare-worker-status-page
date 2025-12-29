@@ -1,23 +1,41 @@
-import { renderStatusPage, ServiceStatus } from "./renderHtml";
-
-async function sendToTelegram(msg: string, env: Env) {
-	const form = new FormData();
-	form.append("text", msg);
-	form.append("chat_id", `${env.TELEGRAM_CHAT_ID}`);
-
-	const init = {
-		method: 'POST',
-		headers: {
-			"Authorization": `Bearer ${env.TELEGRAM_TOKEN}`
-		},
-		body: form
-	};
-	const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, init);
-	// Cancel the response body to prevent deadlock as we don't need to read it
-	response.body?.cancel();
+export interface ServiceStatus {
+	id: number;
+	name: string;
+	url: string;
+	is_up: number;
+	last_checked_at: string | null;
+	status_changed_at: string | null;
+	response_time_ms: number | null;
+	created_at: string;
 }
 
-async function checkServiceHealth(url: string): Promise<{ isUp: boolean; responseTimeMs: number | null }> {
+// Parse D1 datetime string to Date object
+// D1 stores dates via datetime('now') in UTC format (e.g., '2025-12-14 13:46:14')
+export function parseD1DateTime(dateStr: string | null): Date | null {
+	if (!dateStr) return null;
+	// D1 datetime format is 'YYYY-MM-DD HH:MM:SS' in UTC
+	// Append 'Z' to indicate UTC timezone for proper parsing
+	return new Date(dateStr.replace(' ', 'T') + 'Z');
+}
+
+export function formatDuration(startDate: string | null): string {
+	const start = parseD1DateTime(startDate);
+	if (!start) return 'Unknown';
+	const now = new Date();
+	const diffMs = now.getTime() - start.getTime();
+	
+	const seconds = Math.floor(diffMs / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const hours = Math.floor(minutes / 60);
+	const days = Math.floor(hours / 24);
+	
+	if (days > 0) return `${days}d ${hours % 24}h`;
+	if (hours > 0) return `${hours}h ${minutes % 60}m`;
+	if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+	return `${seconds}s`;
+}
+
+export async function checkServiceHealth(url: string): Promise<{ isUp: boolean; responseTimeMs: number | null }> {
 	const startTime = Date.now();
 	try {
 		const controller = new AbortController();
@@ -48,7 +66,24 @@ async function checkServiceHealth(url: string): Promise<{ isUp: boolean; respons
 	}
 }
 
-async function performHealthChecks(env: Env): Promise<void> {
+export async function sendToTelegram(msg: string, env: Env) {
+	const form = new FormData();
+	form.append("text", msg);
+	form.append("chat_id", `${env.TELEGRAM_CHAT_ID}`);
+
+	const init = {
+		method: 'POST',
+		headers: {
+			"Authorization": `Bearer ${env.TELEGRAM_TOKEN}`
+		},
+		body: form
+	};
+	const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, init);
+	// Cancel the response body to prevent deadlock as we don't need to read it
+	response.body?.cancel();
+}
+
+export async function performHealthChecks(env: Env): Promise<void> {
 	const services = await env.DB.prepare("SELECT * FROM services").all<ServiceStatus>();
 	
 	for (const service of services.results) {
@@ -73,7 +108,7 @@ async function performHealthChecks(env: Env): Promise<void> {
 	}
 }
 
-async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
+export function lastUpdated(services: ServiceStatus[]): Date {
 	return new Date(
 		services
 			.map(s => s.last_checked_at)
@@ -82,27 +117,3 @@ async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
 			.reverse()[0] || new Date().toISOString()
 	);
 }
-
-export default {
-	async fetch(request, env) {
-		const url = new URL(request.url);
-		
-		await performHealthChecks(env);
-
-		// Main status page
-		const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
-		const { results } = await stmt.all<ServiceStatus>();
-		const lastUpdatedDate = await lastUpdated(results);
-
-		return new Response(renderStatusPage(results, lastUpdatedDate), {
-			headers: {
-				"content-type": "text/html",
-			},
-		});
-	},
-	
-	// Scheduled handler for periodic healthchecks
-	async scheduled(event, env, ctx) {
-		ctx.waitUntil(performHealthChecks(env));
-	},
-} satisfies ExportedHandler<Env>;

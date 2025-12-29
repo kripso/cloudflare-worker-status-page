@@ -1,6 +1,7 @@
 {
 	"name": "d1-template",
 	"description": "Cloudflare's native serverless SQL database.",
+	"type": "module",
 	"cloudflare": {
 		"label": "Worker + D1 Database",
 		"products": [
@@ -16,16 +17,26 @@
 		"publish": true
 	},
 	"devDependencies": {
+		"@sveltejs/adapter-cloudflare": "^7.2.4",
+		"@sveltejs/kit": "^2.49.2",
+		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"svelte": "^5.46.1",
+		"svelte-check": "^4.3.5",
 		"typescript": "5.9.3",
+		"vite": "^7.3.0",
 		"wrangler": "4.51.0"
 	},
 	"private": true,
 	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build && node add-scheduled-handler.js",
+		"preview": "vite preview",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"cf-typegen": "wrangler types",
-		"check": "tsc && wrangler deploy --dry-run",
-		"deploy": "wrangler deploy",
-		"dev": "pnpm seedLocalD1 && wrangler dev",
+		"deploy": "npm run build && wrangler deploy",
 		"predeploy": "wrangler d1 migrations apply DB --remote",
-		"seedLocalD1": "wrangler d1 migrations apply DB --local"
+		"seedLocalD1": "wrangler d1 migrations apply DB --local",
+		"wrangler:dev": "npm run seedLocalD1 && wrangler dev"
 	}
 }
