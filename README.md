@@ -100,8 +100,10 @@ npm run deploy
 
 This will:
 1. Apply remote database migrations (if any)
-2. Build the application
+2. Automatically build the application (via wrangler's build command)
 3. Deploy to Cloudflare Workers
+
+**Note:** Wrangler automatically runs `npm run build` before deployment, so you don't need to build manually. The build output (`.svelte-kit/` directory) is gitignored and generated on-demand.
 
 ## Project Structure
 
