@@ -2,13 +2,13 @@
 	import { formatDuration, parseD1DateTime, type ServiceStatus } from '$lib/utils';
 	import type { PageData } from './$types';
 	
-	export let data: PageData;
+	let { data }: { data: PageData } = $props();
 	
-	$: services = data.services as ServiceStatus[];
-	$: lastUpdatedDate = new Date(data.lastUpdated);
-	$: allUp = services.every(s => s.is_up === 1);
-	$: overallStatus = allUp ? '✅ All Systems Operational' : '⚠️ Some Systems Down';
-	$: overallColor = allUp ? '#10b981' : '#f59e0b';
+	let services = $derived(data.services as ServiceStatus[]);
+	let lastUpdatedDate = $derived(new Date(data.lastUpdated));
+	let allUp = $derived(services.every(s => s.is_up === 1));
+	let overallStatus = $derived(allUp ? '✅ All Systems Operational' : '⚠️ Some Systems Down');
+	let overallColor = $derived(allUp ? '#10b981' : '#f59e0b');
 </script>
 
 <svelte:head>
