@@ -9,6 +9,7 @@ export interface ServiceStatus {
 
 export interface ChangelogEntry {
 	service_id: number;
+	previous_status: number;
 	new_status: number;
 	changed_at: string;
 }
@@ -59,35 +60,29 @@ function generateHealthTimeline(serviceId: number, currentStatus: number, change
 	// Create timeline segments
 	const now = new Date();
 	const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-	
-	// Build segments from changelog
+
+	// Build segments from changelog by walking entries in reverse so we can
+	// correctly attribute status ranges between changes.
 	const segments: { status: number; start: Date; end: Date }[] = [];
-	
-	// Start with the first entry
-	let lastStatus = serviceChangelog[0].new_status;
-	let lastTime = dayAgo;
-	
-	for (const entry of serviceChangelog) {
+	let lastStatus = currentStatus; // status from last change up to now
+	let lastTime = now;
+
+	for (let i = serviceChangelog.length - 1; i >= 0; i--) {
+		const entry = serviceChangelog[i];
 		const entryTime = parseD1DateTime(entry.changed_at);
 		if (!entryTime) continue;
-		
-		if (entryTime > dayAgo) {
-			segments.push({
-				status: lastStatus,
-				start: lastTime,
-				end: entryTime
-			});
-			lastStatus = entry.new_status;
-			lastTime = entryTime;
-		}
+		if (entryTime <= dayAgo) break; // older than 24h, stop
+
+		// segment covers from this entry time to the previous 'lastTime'
+		segments.push({ status: lastStatus, start: entryTime, end: lastTime });
+
+		// status before this entry is stored as previous_status in the changelog
+		lastStatus = entry.previous_status;
+		lastTime = entryTime;
 	}
-	
-	// Add final segment to now
-	segments.push({
-		status: lastStatus,
-		start: lastTime,
-		end: now
-	});
+
+	// Add remaining segment from dayAgo to the earliest considered time
+	segments.push({ status: lastStatus, start: dayAgo, end: lastTime });
 	
 	// Calculate percentages for each segment
 	const totalMs = now.getTime() - dayAgo.getTime();

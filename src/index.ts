@@ -126,12 +126,12 @@ export default {
 
 		// Get changelog entries for each service (last 24 hours)
 		const changelogStmt = env.DB.prepare(`
-			SELECT service_id, new_status, changed_at 
+			SELECT service_id, previous_status, new_status, changed_at 
 			FROM changelog 
 			WHERE changed_at >= datetime('now', '-24 hours')
 			ORDER BY service_id, changed_at ASC
 		`);
-		const { results: changelog } = await changelogStmt.all<{ service_id: number, new_status: number, changed_at: string }>();
+			const { results: changelog } = await changelogStmt.all<{ service_id: number, previous_status: number, new_status: number, changed_at: string }>();
 
 		return new Response(renderStatusPage(results, lastUpdatedDate, changelog), {
 			headers: {
