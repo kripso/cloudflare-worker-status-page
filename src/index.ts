@@ -21,27 +21,40 @@ function wait(retryDelayMs: number) {
 	return new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 }
 
-function fetchRetry(url: string, retryDelayMs: number, tries: number, fetchOptions = {}): Promise<Response> {
-    function onError(err: Error): Promise<Response> {
-        const triesLeft = tries - 1;
-        if(!triesLeft){
-            throw err;
-        }
-        return wait(retryDelayMs).then(() => fetchRetry(url, retryDelayMs, triesLeft, fetchOptions));
-    }
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
-    return fetch(url, { ...fetchOptions, signal: controller.signal })
-        .then((response) => {
-            clearTimeout(timeoutId);
-            return response;
-        })
-        .catch((err) => {
-            clearTimeout(timeoutId);
-            return onError(err);
-        });
+
+async function fetchRetry(
+	url: string,
+	retryDelayMs: number,
+	tries: number,
+	fetchOptions: RequestInit = {}
+): Promise<Response> {
+	let lastErr: any;
+
+	for (let attempt = 1; attempt <= tries; attempt++) {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+		try {
+			const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
+			clearTimeout(timeoutId);
+			return response;
+		} catch (err) {
+			clearTimeout(timeoutId);
+			lastErr = err;
+
+			const triesLeft = tries - attempt;
+			if (!triesLeft) break;
+
+			// exponential backoff: retryDelayMs * 2^(attempt-1)
+			const delay = retryDelayMs * Math.pow(2, attempt - 1);
+
+			// small jitter to avoid thundering herd (10% of delay)
+			const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay * 0.1)));
+			await wait(delay + jitter);
+		}
+	}
+
+	throw lastErr;
 }
 
 async function checkServiceHealth(url: string): Promise<boolean> {
@@ -113,12 +126,12 @@ export default {
 
 		// Get changelog entries for each service (last 24 hours)
 		const changelogStmt = env.DB.prepare(`
-			SELECT service_id, new_status, changed_at 
+			SELECT service_id, previous_status, new_status, changed_at 
 			FROM changelog 
 			WHERE changed_at >= datetime('now', '-24 hours')
 			ORDER BY service_id, changed_at ASC
 		`);
-		const { results: changelog } = await changelogStmt.all<{ service_id: number, new_status: number, changed_at: string }>();
+			const { results: changelog } = await changelogStmt.all<{ service_id: number, previous_status: number, new_status: number, changed_at: string }>();
 
 		return new Response(renderStatusPage(results, lastUpdatedDate, changelog), {
 			headers: {
