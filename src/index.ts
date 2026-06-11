@@ -34,7 +34,7 @@ async function fetchRetry(
 		const controller = new AbortController();
 
 		try {
-			const timeoutId = setTimeout(() => controller.abort(), 10000);
+			const timeoutId = setTimeout(() => controller.abort(), 20000);
 			const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
 			clearTimeout(timeoutId);
 			return response;
