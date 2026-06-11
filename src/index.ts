@@ -32,9 +32,9 @@ async function fetchRetry(
 
 	for (let attempt = 1; attempt <= tries; attempt++) {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 10000);
 
 		try {
+			const timeoutId = setTimeout(() => controller.abort(), 10000);
 			const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
 			clearTimeout(timeoutId);
 			return response;
@@ -59,7 +59,7 @@ async function fetchRetry(
 
 async function checkServiceHealth(url: string): Promise<boolean> {
     try {
-        const response = await fetchRetry(url, 5000, 3, {
+        const response = await fetchRetry(url, 5000, 5, {
             method: 'GET',
             headers: {
                 'User-Agent': 'StatusPage-HealthCheck/1.0'
