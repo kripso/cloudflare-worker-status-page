@@ -119,6 +119,7 @@ async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
 
 export default {
 	async fetch(request, env) {
+		ctx.waitUntil(performHealthChecks(env));
 		// Main status page
 		const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
 		const { results } = await stmt.all<ServiceStatus>();
