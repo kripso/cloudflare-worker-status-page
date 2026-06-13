@@ -2,9 +2,7 @@ import { renderStatusPage, ServiceStatus } from "./renderHtml";
 
 const CHECK_TIMEOUT_MS = 10_000;
 const RETRY_DELAY_MS = 2_000;
-const ATTEMPTS_PER_CHECK = 2;
-const FAILURES_BEFORE_DOWN = 3;
-const SUCCESSES_BEFORE_UP = 2;
+const PROBES_PER_CHECK = 3;
 
 async function sendToTelegram(msg: string, env: Env) {
 	const form = new FormData();
@@ -28,63 +26,61 @@ function sleep(ms: number) {
 }
 
 async function probe(url: string): Promise<boolean> {
-	for (let attempt = 1; attempt <= ATTEMPTS_PER_CHECK; attempt++) {
-		const controller = new AbortController();
-		const timeout = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
 
-		try {
-			const response = await fetch(url, {
-				method: "GET",
-				signal: controller.signal,
-				headers: { "User-Agent": "StatusPage-HealthCheck/1.0" },
-			});
+	try {
+		const response = await fetch(url, {
+			method: "GET",
+			signal: controller.signal,
+			headers: { "User-Agent": "StatusPage-HealthCheck/1.0" },
+		});
 
-			response.body?.cancel();
+		response.body?.cancel();
+		return response.status >= 200 && response.status < 400;
+	} catch (err) {
+		console.log(`Health check failed for ${url}`, err);
+		return false;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
 
-			if (response.status >= 200 && response.status < 400) {
-				return true;
-			}
-		} catch (err) {
-			console.log(`Health check failed for ${url}`, err);
-		} finally {
-			clearTimeout(timeout);
+async function checkService(url: string): Promise<boolean> {
+	let successfulProbes = 0;
+
+	for (let probeNumber = 1; probeNumber <= PROBES_PER_CHECK; probeNumber++) {
+		if (await probe(url)) {
+			successfulProbes++;
 		}
 
-		if (attempt < ATTEMPTS_PER_CHECK) {
+		if (probeNumber < PROBES_PER_CHECK) {
 			await sleep(RETRY_DELAY_MS);
 		}
 	}
 
-	return false;
+	return successfulProbes > PROBES_PER_CHECK / 2;
 }
 
 async function performHealthChecks(env: Env): Promise<void> {
 	const services = await env.DB.prepare("SELECT * FROM services").all<ServiceStatus>();
 	
 	for (const service of services.results) {
-		const isHealthy = await probe(service.url);
+		const isHealthy = await checkService(service.url);
 		const wasUp = service.is_up === 1;
 		const isFirstCheck = service.status_changed_at === null;
-		const failures = isHealthy ? 0 : service.consecutive_failures + 1;
-		const successes = isHealthy ? service.consecutive_successes + 1 : 0;
-		const isConfirmedDown = wasUp && failures >= FAILURES_BEFORE_DOWN;
-		const isConfirmedUp = !wasUp && successes >= SUCCESSES_BEFORE_UP;
-		const nextIsUp = isConfirmedDown ? false : isConfirmedUp ? true : wasUp;
+		const nextIsUp = isHealthy;
 		const statusChanged = wasUp !== nextIsUp;
 
 		await env.DB.prepare(`
 			UPDATE services
 			SET
 				is_up = ?,
-				consecutive_failures = ?,
-				consecutive_successes = ?,
 				last_checked_at = datetime('now'),
 				status_changed_at = CASE WHEN ? THEN datetime('now') ELSE status_changed_at END
 			WHERE id = ?
 		`).bind(
 			nextIsUp ? 1 : 0,
-			failures,
-			successes,
 			statusChanged || isFirstCheck ? 1 : 0,
 			service.id,
 		).run();

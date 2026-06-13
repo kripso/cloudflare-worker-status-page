@@ -3,8 +3,6 @@ export interface ServiceStatus {
 	name: string;
 	url: string;
 	is_up: number;
-	consecutive_failures: number;
-	consecutive_successes: number;
 	status_changed_at: string | null;
 	last_checked_at: string | null;
 }
