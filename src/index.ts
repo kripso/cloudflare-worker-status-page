@@ -31,19 +31,21 @@ async function fetchRetry(
 	let lastErr: any;
 
 	for (let attempt = 1; attempt <= tries; attempt++) {
-		const controller = new AbortController();
-
 		try {
+			const controller = new AbortController();
 			const timeoutId = setTimeout(() => controller.abort(), 20000);
 			const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
+			
 			clearTimeout(timeoutId);
+			const isUp = response.status >= 200 && response.status < 400;
+			if (!isUp) throw new Error("Failed");
 			return response;
 		} catch (err) {
 			clearTimeout(timeoutId);
 			lastErr = err;
 
 			const triesLeft = tries - attempt;
-			if (!triesLeft) break;
+			if (triesLeft <= 0) break;
 
 			// exponential backoff: retryDelayMs * 2^(attempt-1)
 			const delay = retryDelayMs * Math.pow(2, attempt - 1);
