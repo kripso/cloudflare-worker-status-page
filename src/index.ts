@@ -1,5 +1,11 @@
 import { renderStatusPage, ServiceStatus } from "./renderHtml";
 
+const CHECK_TIMEOUT_MS = 10_000;
+const RETRY_DELAY_MS = 2_000;
+const ATTEMPTS_PER_CHECK = 2;
+const FAILURES_BEFORE_DOWN = 3;
+const SUCCESSES_BEFORE_UP = 2;
+
 async function sendToTelegram(msg: string, env: Env) {
 	const form = new FormData();
 	form.append("text", msg);
@@ -17,94 +23,81 @@ async function sendToTelegram(msg: string, env: Env) {
 	response.body?.cancel();
 }
 
-function wait(retryDelayMs: number) {
-	return new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+function sleep(ms: number) {
+	return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function probe(url: string): Promise<boolean> {
+	for (let attempt = 1; attempt <= ATTEMPTS_PER_CHECK; attempt++) {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
 
-async function fetchRetry(
-	url: string,
-	retryDelayMs: number,
-	tries: number,
-	fetchOptions: RequestInit = {}
-): Promise<Response> {
-	let lastErr: any;
-
-	for (let attempt = 1; attempt <= tries; attempt++) {
 		try {
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 20000);
-			const response = await fetch(url, { ...fetchOptions, signal: controller.signal });
-			
-			clearTimeout(timeoutId);
-			const isUp = response.status >= 200 && response.status < 400;
-			if (!isUp) throw new Error("Failed");
-			return response;
+			const response = await fetch(url, {
+				method: "GET",
+				signal: controller.signal,
+				headers: { "User-Agent": "StatusPage-HealthCheck/1.0" },
+			});
+
+			response.body?.cancel();
+
+			if (response.status >= 200 && response.status < 400) {
+				return true;
+			}
 		} catch (err) {
-			clearTimeout(timeoutId);
-			lastErr = err;
+			console.log(`Health check failed for ${url}`, err);
+		} finally {
+			clearTimeout(timeout);
+		}
 
-			const triesLeft = tries - attempt;
-			if (triesLeft <= 0) break;
-
-			// exponential backoff: retryDelayMs * 2^(attempt-1)
-			const delay = retryDelayMs * Math.pow(2, attempt - 1);
-
-			// small jitter to avoid thundering herd (10% of delay)
-			const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(delay * 0.1)));
-			await wait(delay + jitter);
+		if (attempt < ATTEMPTS_PER_CHECK) {
+			await sleep(RETRY_DELAY_MS);
 		}
 	}
 
-	throw lastErr;
-}
-
-async function checkServiceHealth(url: string): Promise<boolean> {
-    try {
-        const response = await fetchRetry(url, 5000, 5, {
-            method: 'GET',
-            headers: {
-                'User-Agent': 'StatusPage-HealthCheck/1.0'
-            }
-        });
-        
-        const isUp = response.status >= 200 && response.status < 400;
-        response.body?.cancel();
-        
-        return isUp;
-    } catch {
-        return false;
-    }
+	return false;
 }
 
 async function performHealthChecks(env: Env): Promise<void> {
 	const services = await env.DB.prepare("SELECT * FROM services").all<ServiceStatus>();
 	
 	for (const service of services.results) {
-		const isUp = await checkServiceHealth(service.url);
+		const isHealthy = await probe(service.url);
 		const wasUp = service.is_up === 1;
 		const isFirstCheck = service.status_changed_at === null;
-		const statusChanged = wasUp !== isUp;
-		
-		if (statusChanged || isFirstCheck) {
-			await env.DB.prepare(
-				"UPDATE services SET is_up = ?, last_checked_at = datetime('now'), status_changed_at = datetime('now') WHERE id = ?"
-			).bind(isUp ? 1 : 0, service.id).run();
+		const failures = isHealthy ? 0 : service.consecutive_failures + 1;
+		const successes = isHealthy ? service.consecutive_successes + 1 : 0;
+		const isConfirmedDown = wasUp && failures >= FAILURES_BEFORE_DOWN;
+		const isConfirmedUp = !wasUp && successes >= SUCCESSES_BEFORE_UP;
+		const nextIsUp = isConfirmedDown ? false : isConfirmedUp ? true : wasUp;
+		const statusChanged = wasUp !== nextIsUp;
 
-			// Log the status change to changelog
-			if (statusChanged && !isFirstCheck) {
-				await env.DB.prepare(
-					"INSERT INTO changelog (service_id, previous_status, new_status) VALUES (?, ?, ?)"
-				).bind(service.id, wasUp ? 1 : 0, isUp ? 1 : 0).run();
-			}
+		await env.DB.prepare(`
+			UPDATE services
+			SET
+				is_up = ?,
+				consecutive_failures = ?,
+				consecutive_successes = ?,
+				last_checked_at = datetime('now'),
+				status_changed_at = CASE WHEN ? THEN datetime('now') ELSE status_changed_at END
+			WHERE id = ?
+		`).bind(
+			nextIsUp ? 1 : 0,
+			failures,
+			successes,
+			statusChanged || isFirstCheck ? 1 : 0,
+			service.id,
+		).run();
 
-			const statusText = isUp ? 'UP' : 'DOWN';
+		if (statusChanged && !isFirstCheck) {
+			await env.DB.prepare(`
+				INSERT INTO changelog (service_id, previous_status, new_status)
+				VALUES (?, ?, ?)
+			`).bind(service.id, wasUp ? 1 : 0, nextIsUp ? 1 : 0).run();
+
+			const statusText = nextIsUp ? "UP" : "DOWN";
 			const message = `Service "${service.name}" is now ${statusText}.\nURL: ${service.url}`;
 			await sendToTelegram(message, env);
-		} else {
-			await env.DB.prepare(
-				"UPDATE services SET last_checked_at = datetime('now') WHERE id = ?"
-			).bind(service.id).run();
 		}
 	}
 }
@@ -121,8 +114,6 @@ async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
 
 export default {
 	async fetch(request, env) {
-		performHealthChecks(env);
-		// Main status page
 		const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
 		const { results } = await stmt.all<ServiceStatus>();
 		const lastUpdatedDate = await lastUpdated(results);
@@ -134,7 +125,7 @@ export default {
 			WHERE changed_at >= datetime('now', '-24 hours')
 			ORDER BY service_id, changed_at ASC
 		`);
-			const { results: changelog } = await changelogStmt.all<{ service_id: number, previous_status: number, new_status: number, changed_at: string }>();
+		const { results: changelog } = await changelogStmt.all<{ service_id: number, previous_status: number, new_status: number, changed_at: string }>();
 
 		return new Response(renderStatusPage(results, lastUpdatedDate, changelog), {
 			headers: {
@@ -143,7 +134,6 @@ export default {
 		});
 	},
 	
-	// Scheduled handler for periodic healthchecks
 	async scheduled(event, env, ctx) {
 		ctx.waitUntil(performHealthChecks(env));
 	},
