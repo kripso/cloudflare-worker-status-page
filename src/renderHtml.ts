@@ -97,6 +97,7 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta http-equiv="refresh" content="60">
 	<title>Service Status</title>
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 	<style>
 		:root {
 			--bg: #0f172a;
@@ -118,7 +119,8 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 			padding: 40px 16px;
 		}
 		.container { max-width: 820px; margin: 0 auto; }
-		h1 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+		h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+		h1 img { width: 36px; height: 36px; }
 		.banner {
 			font-size: 17px;
 			font-weight: 600;
@@ -211,7 +213,7 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 </head>
 <body>
 	<main class="container">
-		<h1>Service Status</h1>
+		<h1><img src="/favicon.svg" alt="" />Service Status</h1>
 		${banner}
 		<ul class="services">${serviceRows}
 		</ul>
