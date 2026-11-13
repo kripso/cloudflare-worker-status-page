@@ -122,8 +122,12 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 			background: var(--bg);
 			color: var(--text);
-			/* Keep content clear of the notch when launched from the iOS home screen. */
-			padding: max(40px, calc(env(safe-area-inset-top) + 16px)) max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+			/* Keep content clear of the notch when launched from the iOS home screen;
+			   pad both sides by the larger inset so the column stays centred in landscape. */
+			--gutter: max(16px, env(safe-area-inset-left), env(safe-area-inset-right));
+			padding: max(40px, calc(env(safe-area-inset-top) + 16px)) var(--gutter) max(40px, env(safe-area-inset-bottom));
+			-webkit-text-size-adjust: 100%;
+			text-size-adjust: 100%;
 		}
 		.container { max-width: 820px; margin: 0 auto; }
 		h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 24px; }
