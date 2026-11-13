@@ -129,7 +129,7 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 			-webkit-text-size-adjust: 100%;
 			text-size-adjust: 100%;
 		}
-		.container { max-width: 820px; margin: 0 auto; }
+		.container { position: relative; max-width: 820px; margin: 0 auto; }
 		h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 24px; }
 		h1 img { width: 36px; height: 36px; }
 		.banner {
@@ -241,6 +241,35 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 	</main>
 	<div id="tip" role="tooltip" hidden><strong></strong><span></span></div>
 	<script>
+		// Installed as a web app on an iPhone Duo, iOS keeps the camera/clock rail beside the
+		// viewport without reporting it as a safe-area inset, so the column centres on the
+		// remaining space and looks off-centre. Nudge it toward the rail, using only space the
+		// layout leaves empty, so it sits centred on the physical screen. Screen sizes are in
+		// points while layout is in CSS px, which differ under Safari's page zoom; the visual
+		// viewport's width times its scale gives the viewport in points regardless of zoom.
+		// The rail is on the left at angle 90 and on the right at 0 and 270; larger gaps are
+		// split views, not a rail.
+		const main = document.querySelector("main");
+		function centreOnScreen() {
+			const angle = screen.orientation ? screen.orientation.angle : (window.orientation + 360) % 360;
+			const landscape = angle === 90 || angle === 270;
+			const screenPoints = landscape ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+			const viewportPx = document.documentElement.clientWidth;
+			const viewportPoints = window.visualViewport ? visualViewport.width * visualViewport.scale : innerWidth;
+			const railPoints = screenPoints - viewportPoints;
+			let shift = 0;
+			if (navigator.standalone && railPoints > 0 && railPoints <= 160 && angle !== 180) {
+				const pxPerPoint = viewportPx / viewportPoints;
+				const gutter = parseFloat(getComputedStyle(document.body).paddingLeft);
+				const room = Math.max(0, (viewportPx - main.offsetWidth) / 2 - gutter);
+				shift = Math.min((railPoints / 2) * pxPerPoint, room) * (angle === 90 ? -1 : 1);
+			}
+			main.style.left = shift + "px";
+		}
+		centreOnScreen();
+		addEventListener("resize", centreOnScreen);
+		if (window.visualViewport) visualViewport.addEventListener("resize", centreOnScreen);
+
 		const tip = document.getElementById("tip");
 		const [tipDate, tipSummary] = tip.children;
 		for (const time of document.querySelectorAll("time[datetime]")) {
