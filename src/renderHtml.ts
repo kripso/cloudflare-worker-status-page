@@ -94,10 +94,16 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 <html lang="en">
 <head>
 	<meta charset="UTF-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+	<meta name="theme-color" content="#0f172a" />
+	<meta name="apple-mobile-web-app-capable" content="yes" />
+	<meta name="apple-mobile-web-app-title" content="Status" />
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 	<meta http-equiv="refresh" content="60">
 	<title>Service Status</title>
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+	<link rel="manifest" href="/manifest.webmanifest" />
 	<style>
 		:root {
 			--bg: #0f172a;
@@ -116,7 +122,8 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 			background: var(--bg);
 			color: var(--text);
-			padding: 40px 16px;
+			/* Keep content clear of the notch when launched from the iOS home screen. */
+			padding: max(40px, calc(env(safe-area-inset-top) + 16px)) max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 		}
 		.container { max-width: 820px; margin: 0 auto; }
 		h1 { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 24px; }

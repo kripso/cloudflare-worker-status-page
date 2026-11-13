@@ -1,4 +1,3 @@
-import { ICON_SVG } from "./icon";
 import { HISTORY_DAYS, renderStatusPage } from "./renderHtml";
 import { ChangelogEntry, ServiceStatus, toD1DateTime, windowStart } from "./timeline";
 
@@ -102,15 +101,6 @@ async function performHealthChecks(env: Env): Promise<void> {
 
 export default {
 	async fetch(request, env) {
-		if (new URL(request.url).pathname === "/favicon.svg") {
-			return new Response(ICON_SVG, {
-				headers: {
-					"content-type": "image/svg+xml",
-					"cache-control": "public, max-age=86400",
-				},
-			});
-		}
-
 		const now = new Date();
 		const { results: services } = await env.DB.prepare("SELECT * FROM services ORDER BY name").all<ServiceStatus>();
 		const { results: changelog } = await env.DB.prepare(`
