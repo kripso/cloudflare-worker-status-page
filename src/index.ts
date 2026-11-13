@@ -1,4 +1,5 @@
-import { renderStatusPage, ServiceStatus } from "./renderHtml";
+import { HISTORY_DAYS, renderStatusPage } from "./renderHtml";
+import { ChangelogEntry, ServiceStatus, toD1DateTime, windowStart } from "./timeline";
 
 const CHECK_TIMEOUT_MS = 10_000;
 const RETRY_DELAY_MS = 2_000;
@@ -98,38 +99,24 @@ async function performHealthChecks(env: Env): Promise<void> {
 	}
 }
 
-async function lastUpdated(services: ServiceStatus[]): Promise<Date> {
-	return new Date(
-		services
-			.map(s => s.last_checked_at)
-			.filter((d): d is string => d !== null)
-			.sort()
-			.reverse()[0] || new Date().toISOString()
-	);
-}
-
 export default {
 	async fetch(request, env) {
-		const stmt = env.DB.prepare("SELECT * FROM services ORDER BY name");
-		const { results } = await stmt.all<ServiceStatus>();
-		const lastUpdatedDate = await lastUpdated(results);
+		const now = new Date();
+		const { results: services } = await env.DB.prepare("SELECT * FROM services ORDER BY name").all<ServiceStatus>();
+		const { results: changelog } = await env.DB.prepare(`
+			SELECT service_id, previous_status, new_status, changed_at
+			FROM changelog
+			WHERE changed_at >= ?
+			ORDER BY service_id, changed_at ASC, id ASC
+		`).bind(toD1DateTime(windowStart(now, HISTORY_DAYS))).all<ChangelogEntry>();
 
-		// Get changelog entries for each service (last 24 hours)
-		const changelogStmt = env.DB.prepare(`
-			SELECT service_id, previous_status, new_status, changed_at 
-			FROM changelog 
-			WHERE changed_at >= datetime('now', '-24 hours')
-			ORDER BY service_id, changed_at ASC
-		`);
-		const { results: changelog } = await changelogStmt.all<{ service_id: number, previous_status: number, new_status: number, changed_at: string }>();
-
-		return new Response(renderStatusPage(results, lastUpdatedDate, changelog), {
+		return new Response(renderStatusPage(services, changelog, now), {
 			headers: {
-				"content-type": "text/html",
+				"content-type": "text/html; charset=utf-8",
 			},
 		});
 	},
-	
+
 	async scheduled(event, env, ctx) {
 		ctx.waitUntil(performHealthChecks(env));
 	},

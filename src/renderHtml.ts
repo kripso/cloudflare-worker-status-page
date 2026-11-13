@@ -1,199 +1,252 @@
-export interface ServiceStatus {
-	id: number;
-	name: string;
-	url: string;
-	is_up: number;
-	status_changed_at: string | null;
-	last_checked_at: string | null;
-}
+import {
+	ChangelogEntry,
+	DayBar,
+	ServiceStatus,
+	dailyBars,
+	formatDuration,
+	formatUptime,
+	parseD1DateTime,
+} from "./timeline";
 
-export interface ChangelogEntry {
-	service_id: number;
-	previous_status: number;
-	new_status: number;
-	changed_at: string;
-}
-
-// Parse D1 datetime string to Date object
-// D1 stores dates via datetime('now') in UTC format (e.g., '2025-12-14 13:46:14')
-function parseD1DateTime(dateStr: string | null): Date | null {
-	if (!dateStr) return null;
-	// D1 datetime format is 'YYYY-MM-DD HH:MM:SS' in UTC
-	// Append 'Z' to indicate UTC timezone for proper parsing
-	return new Date(dateStr.replace(' ', 'T') + 'Z');
-}
-
-function formatDuration(startDate: string | null): string {
-	const start = parseD1DateTime(startDate);
-	if (!start) return 'Unknown';
-	const now = new Date();
-	const diffMs = now.getTime() - start.getTime();
-	
-	const seconds = Math.floor(diffMs / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-	const days = Math.floor(hours / 24);
-	
-	if (days > 0) return `${days}d ${hours % 24}h`;
-	if (hours > 0) return `${hours}h ${minutes % 60}m`;
-	if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-	return `${seconds}s`;
-}
+export const HISTORY_DAYS = 90;
+const MOBILE_DAYS = 30;
+// A day with at most this much downtime (5% of a day) counts as a partial outage.
+const PARTIAL_OUTAGE_MAX_DOWN_MS = 72 * 60_000;
 
 function escapeHtml(text: string): string {
-	return text.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#039;');
+	return text.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
 }
 
-function generateHealthTimeline(serviceId: number, currentStatus: number, changelog: ChangelogEntry[]): string {
-	const serviceChangelog = changelog.filter(c => c.service_id === serviceId);
-	
-	if (serviceChangelog.length === 0) {
-		// No changes in last 24h, show solid bar
-		const color = currentStatus === 1 ? '#10b981' : '#ef4444';
-		return `<div style="width: 100%; height: 24px; background: ${color}; border-radius: 4px;"></div>`;
+const dayFormat = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+function renderBar(bar: DayBar): string {
+	const knownMs = bar.upMs + bar.downMs;
+	let kind: string;
+	let summary: string;
+	if (knownMs === 0) {
+		kind = "none";
+		summary = "No data";
+	} else if (bar.downMs === 0) {
+		kind = "up";
+		summary = "No downtime";
+	} else {
+		kind = bar.downMs <= PARTIAL_OUTAGE_MAX_DOWN_MS ? "partial" : "down";
+		summary = `Down for ${formatDuration(bar.downMs)}`;
 	}
-	
-	// Create timeline segments
-	const now = new Date();
-	const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-	// Build segments from changelog by walking entries in reverse so we can
-	// correctly attribute status ranges between changes.
-	const segments: { status: number; start: Date; end: Date }[] = [];
-	let lastStatus = currentStatus; // status from last change up to now
-	let lastTime = now;
-
-	for (let i = serviceChangelog.length - 1; i >= 0; i--) {
-		const entry = serviceChangelog[i];
-		const entryTime = parseD1DateTime(entry.changed_at);
-		if (!entryTime) continue;
-		if (entryTime <= dayAgo) break; // older than 24h, stop
-
-		// segment covers from this entry time to the previous 'lastTime'
-		segments.push({ status: lastStatus, start: entryTime, end: lastTime });
-
-		// status before this entry is stored as previous_status in the changelog
-		lastStatus = entry.previous_status;
-		lastTime = entryTime;
-	}
-
-	// Add remaining segment from dayAgo to the earliest considered time
-	segments.push({ status: lastStatus, start: dayAgo, end: lastTime });
-	
-	// Calculate percentages for each segment
-	const totalMs = now.getTime() - dayAgo.getTime();
-	const segmentHtml = segments.map(seg => {
-		const segMs = seg.end.getTime() - seg.start.getTime();
-		const percentage = (segMs / totalMs) * 100;
-		const color = seg.status === 1 ? '#10b981' : '#ef4444';
-		return `<div style="flex: 0 0 ${percentage}%; height: 24px; background: ${color};"></div>`;
-	}).join('');
-	
-	return `<div style="display: flex; width: 100%; border-radius: 4px; overflow: hidden;">${segmentHtml}</div>`;
+	return `<span class="bar bar-${kind}" data-date="${dayFormat.format(bar.start)}" data-summary="${summary}"></span>`;
 }
 
-export function renderStatusPage(services: ServiceStatus[], lastUpdated: Date, changelog: ChangelogEntry[] = []) {
-	const allUp = services.every(s => s.is_up === 1);
-	const overallStatus = allUp ? '✅ All Systems Operational' : '⚠️ Some Systems Down';
-	const overallColor = allUp ? '#10b981' : '#f59e0b';
-	
-	const serviceRows = services.map(service => {
-		const statusIcon = service.is_up ? '🟢' : '🔴';
-		const statusText = service.is_up ? 'Up' : 'Down';
-		const statusColor = service.is_up ? '#10b981' : '#ef4444';
-		const duration = formatDuration(service.status_changed_at);
-		const timeline = generateHealthTimeline(service.id, service.is_up, changelog);
-		
-		return `
-			<div class="service-card" style="background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);">
-				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-					<div>
-						<div style="font-size: 18px; font-weight: 600; color: #f1f5f9;">${statusIcon} ${escapeHtml(service.name)}</div>
-						<div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">${escapeHtml(service.url)}</div>
-					</div>
-					<div style="text-align: right;">
-						<div style="font-size: 14px; font-weight: 500; color: ${statusColor};">${statusText}</div>
-						<div style="font-size: 12px; color: #94a3b8;">${statusText} for ${duration}</div>
-					</div>
-				</div>
-				<div style="margin-top: 12px;">
-					<div style="font-size: 11px; color: #64748b; margin-bottom: 6px; font-weight: 500;">LAST 24 HOURS</div>
-					${timeline}
-				</div>
-			</div>
-		`;
-	}).join('');
+function renderService(service: ServiceStatus, changes: ChangelogEntry[], now: Date): string {
+	const bars = dailyBars(service, changes, now, HISTORY_DAYS);
+	const isUp = service.is_up === 1;
+	const since = parseD1DateTime(service.status_changed_at);
+	const sinceText = since ? ` for ${formatDuration(now.getTime() - since.getTime())}` : "";
+	const uptime = formatUptime(bars);
+	const mobileUptime = formatUptime(bars.slice(-MOBILE_DAYS));
+	const name = escapeHtml(service.name);
 
 	return `
-<!DOCTYPE html>
+			<li class="service">
+				<div class="service-head">
+					<div class="service-title">
+						<span class="dot ${isUp ? "dot-up" : "dot-down"}" aria-hidden="true"></span>
+						<span class="service-name">${name}</span>
+					</div>
+					<span class="state ${isUp ? "state-up" : "state-down"}">${isUp ? "Operational" : "Down"}</span>
+				</div>
+				<div class="service-meta">
+					<a href="${escapeHtml(service.url)}" rel="noopener">${escapeHtml(service.url)}</a>
+					<span>${isUp ? "Up" : "Down"}${sinceText}</span>
+				</div>
+				<div class="bars" role="img" aria-label="${name}: ${uptime} uptime over the last ${HISTORY_DAYS} days">
+					${bars.map(renderBar).join("")}
+				</div>
+				<div class="bars-legend" aria-hidden="true">
+					<span class="wide">${HISTORY_DAYS} days ago</span><span class="narrow">${MOBILE_DAYS} days ago</span>
+					<span class="rule"></span>
+					<span class="wide">${uptime} uptime</span><span class="narrow">${mobileUptime} uptime</span>
+					<span class="rule"></span>
+					<span>Today</span>
+				</div>
+			</li>`;
+}
+
+export function renderStatusPage(services: ServiceStatus[], changelog: ChangelogEntry[], now: Date): string {
+	const down = services.filter(s => s.is_up !== 1);
+	const banner = down.length === 0
+		? `<div class="banner banner-up">All systems operational</div>`
+		: `<div class="banner banner-down">${down.length === 1 ? `${escapeHtml(down[0].name)} is down` : `${down.length} services are down`}</div>`;
+
+	const lastChecked = services
+		.map(s => parseD1DateTime(s.last_checked_at))
+		.filter((d): d is Date => d !== null)
+		.sort((a, b) => b.getTime() - a.getTime())[0];
+
+	const serviceRows = services
+		.map(service => renderService(service, changelog.filter(c => c.service_id === service.id), now))
+		.join("");
+
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<meta http-equiv="refresh" content="60">
-	<title>Status Page</title>
+	<title>Service Status</title>
 	<style>
+		:root {
+			--bg: #0f172a;
+			--surface: #1e293b;
+			--border: #334155;
+			--text: #f1f5f9;
+			--muted: #94a3b8;
+			--faint: #64748b;
+			--up: #22c55e;
+			--partial: #f59e0b;
+			--down: #ef4444;
+			--none: #334155;
+		}
 		* { box-sizing: border-box; margin: 0; padding: 0; }
 		body {
-			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-			background: #0f172a;
-			color: #f1f5f9;
-			min-height: 100vh;
-			padding: 40px 20px;
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			background: var(--bg);
+			color: var(--text);
+			padding: 40px 16px;
 		}
-		.container {
-			max-width: 800px;
-			margin: 0 auto;
-		}
-		header {
-			text-align: center;
-			margin-bottom: 40px;
-		}
-		h1 {
-			font-size: 28px;
-			margin-bottom: 8px;
-			background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-			-webkit-background-clip: text;
-			-webkit-text-fill-color: transparent;
-			background-clip: text;
-		}
-		.overall-status {
-			font-size: 20px;
-			padding: 16px;
-			border-radius: 12px;
-			margin-bottom: 32px;
-			text-align: center;
+		.container { max-width: 820px; margin: 0 auto; }
+		h1 { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+		.banner {
+			font-size: 17px;
 			font-weight: 600;
-			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+			padding: 16px 20px;
+			border-radius: 8px;
+			margin-bottom: 24px;
+			color: #fff;
 		}
-		.last-updated {
-			text-align: center;
+		.banner-up { background: #15803d; }
+		.banner-down { background: #b91c1c; }
+		.services {
+			list-style: none;
+			background: var(--surface);
+			border: 1px solid var(--border);
+			border-radius: 8px;
+		}
+		.service { padding: 20px; }
+		.service + .service { border-top: 1px solid var(--border); }
+		.service-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+		.service-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+		.service-name { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+		.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+		.dot-up { background: var(--up); box-shadow: 0 0 0 3px rgb(34 197 94 / 0.2); }
+		.dot-down { background: var(--down); box-shadow: 0 0 0 3px rgb(239 68 68 / 0.2); }
+		.state { font-size: 14px; font-weight: 500; flex: none; }
+		.state-up { color: var(--up); }
+		.state-down { color: var(--down); }
+		.service-meta {
+			display: flex;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 4px 12px;
 			font-size: 12px;
-			color: #64748b;
-			margin-top: 24px;
+			color: var(--muted);
+			margin: 6px 0 14px 20px;
 		}
+		.service-meta a { color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+		.service-meta a:hover { text-decoration: underline; }
+		.bars { display: flex; gap: 2px; height: 34px; }
+		.bar { flex: 1; border-radius: 2px; transition: opacity 0.1s; }
+		.bar:hover { opacity: 0.6; }
+		.bar-up { background: var(--up); }
+		.bar-partial { background: var(--partial); }
+		.bar-down { background: var(--down); }
+		.bar-none { background: var(--none); }
+		.bars-legend {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-top: 8px;
+			font-size: 12px;
+			color: var(--faint);
+			white-space: nowrap;
+		}
+		.bars-legend .rule { flex: 1; height: 1px; background: var(--border); }
+		.narrow { display: none; }
+		@media (max-width: 600px) {
+			.bar:nth-child(-n+${HISTORY_DAYS - MOBILE_DAYS}) { display: none; }
+			.wide { display: none; }
+			.narrow { display: inline; }
+		}
+		.legend { display: flex; justify-content: center; flex-wrap: wrap; gap: 16px; margin-top: 16px; font-size: 12px; color: var(--muted); }
+		.legend span::before {
+			content: "";
+			display: inline-block;
+			width: 10px;
+			height: 10px;
+			border-radius: 2px;
+			margin-right: 6px;
+			vertical-align: -1px;
+			background: var(--swatch);
+		}
+		footer { text-align: center; font-size: 12px; color: var(--faint); margin-top: 16px; }
+		#tip {
+			position: absolute;
+			z-index: 10;
+			pointer-events: none;
+			background: #020617;
+			border: 1px solid var(--border);
+			border-radius: 6px;
+			padding: 8px 10px;
+			font-size: 12px;
+			line-height: 1.5;
+			white-space: nowrap;
+			box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+		}
+		#tip strong { display: block; }
+		#tip span { color: var(--muted); }
 	</style>
 </head>
 <body>
-	<div class="container">
-		<header>
-			<h1>📊 Service Status</h1>
-			<p style="color: #94a3b8;">Real-time health monitoring</p>
-		</header>
-		<div class="overall-status" style="background: ${overallColor}20; border: 1px solid ${overallColor};">
-			${overallStatus}
+	<main class="container">
+		<h1>Service Status</h1>
+		${banner}
+		<ul class="services">${serviceRows}
+		</ul>
+		<div class="legend" aria-hidden="true">
+			<span style="--swatch: var(--up)">Operational</span>
+			<span style="--swatch: var(--partial)">Partial outage</span>
+			<span style="--swatch: var(--down)">Major outage</span>
+			<span style="--swatch: var(--none)">No data</span>
 		</div>
-		<div class="services">
-			${serviceRows}
-		</div>
-		<div class="last-updated">
-			Last updated: ${lastUpdated.toLocaleString()}
-		</div>
-	</div>
+		<footer>
+			Checked every 10 minutes · Days in UTC${lastChecked ? ` · Last check <time datetime="${lastChecked.toISOString()}">${lastChecked.toISOString().slice(0, 16).replace("T", " ")} UTC</time>` : ""}
+		</footer>
+	</main>
+	<div id="tip" role="tooltip" hidden><strong></strong><span></span></div>
+	<script>
+		const tip = document.getElementById("tip");
+		const [tipDate, tipSummary] = tip.children;
+		for (const time of document.querySelectorAll("time[datetime]")) {
+			time.textContent = new Date(time.dateTime).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+		}
+		document.addEventListener("pointerover", (event) => {
+			const bar = event.target.closest && event.target.closest(".bar");
+			if (!bar) {
+				tip.hidden = true;
+				return;
+			}
+			tipDate.textContent = bar.dataset.date;
+			tipSummary.textContent = bar.dataset.summary;
+			tip.hidden = false;
+			const rect = bar.getBoundingClientRect();
+			const left = rect.left + rect.width / 2 - tip.offsetWidth / 2;
+			tip.style.left = scrollX + Math.max(8, Math.min(left, innerWidth - tip.offsetWidth - 8)) + "px";
+			tip.style.top = scrollY + rect.top - tip.offsetHeight - 8 + "px";
+		});
+	</script>
 </body>
 </html>
 `;
