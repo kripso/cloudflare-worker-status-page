@@ -170,7 +170,8 @@ export function renderStatusPage(services: ServiceStatus[], changelog: Changelog
 		}
 		.service-meta a { color: inherit; text-decoration: none; overflow-wrap: anywhere; }
 		.service-meta a:hover { text-decoration: underline; }
-		.bars { display: flex; gap: 2px; height: 34px; }
+		/* Long-pressing a bar shows its tooltip, not a text selection callout. */
+		.bars { display: flex; gap: 2px; height: 34px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 		.bar { flex: 1; border-radius: 2px; transition: opacity 0.1s; }
 		.bar:hover { opacity: 0.6; }
 		.bar-up { background: var(--up); }
